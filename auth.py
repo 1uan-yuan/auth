@@ -4,20 +4,43 @@ from keras.layers import (Input, Conv1D, MaxPooling1D,
                           BatchNormalization, concatenate)
 from keras import backend as K
 from tensorflow.keras.optimizers.legacy import Adam
+from sklearn.model_selection import train_test_split
 
 import tensorflow as tf
 import numpy as np
+
+import pre_sensor_data as psd
 
 # Hyperparameters
 decision_lr = 1e-4
 siamese_lr = 1e-3
 
-input_siamese_shape = (9216, 1)
+epochs = 15
+alpha = 0.03
+
+seconds = 3
+negative, freq = psd.get(set="3rd_party_dataset", seconds=seconds, choosing="nodding", sensor="accel")
+positive, _ = psd.get(set="dataset0", seconds=seconds, choosing="nodding", sensor="accel")
+anchor, _ = psd.get(set="dataset1", seconds=seconds, choosing="nodding", sensor="accel")
+
+# trim the data
+min_len = min(anchor.shape[0], positive.shape[0], negative.shape[0])
+anchor = anchor[:min_len]
+positive = positive[:min_len]
+negative = negative[:min_len]
+
+dimensions = 3
+
+input_siamese_shape = (seconds * freq * dimensions, 1)
 input_decision_shape = (32, 1)
 decision_shape = (32, 1)
 
-epochs = 10
-alpha = 0.03
+def compress(data):
+    compressed = []
+    for window in data:
+        compressed.append(window.flatten())
+
+    return np.array(compressed)
 
 
 def triplet_loss(y_true, y_pred):
@@ -71,7 +94,7 @@ def siamese(x_input_shape):
     # return
     siamese_model = Model(inputs=x_input, outputs=x, name='siamese')
 
-    siamese_model.summary()
+    # siamese_model.summary()
 
     return siamese_model
     
@@ -123,7 +146,6 @@ def train_siamese(data):
 
     # Combine the outputs into a single tensor
     siamese_output = concatenate([output_anchor, output_positive, output_negative], axis=1)
-    print("siamese_output: ", siamese_output.shape)
 
     # Optimizer and compile
     model = Model(inputs=[input_anchor, input_positive, input_negative], outputs=siamese_output, name='siamese_training_model')
@@ -132,10 +154,12 @@ def train_siamese(data):
                     metrics=['accuracy'])
     
     # Model summary
-    model.summary()
+    # model.summary()
 
     # Training
-    model.fit(x=[anchor, positive, negative], y=np.zeros((anchor.shape[0], 1)), epochs=epochs)
+    model.fit(x=[anchor, positive, negative], 
+              y=np.zeros((anchor.shape[0], 1)), 
+              epochs=epochs)
 
     # Freeze the weights of the Siamese network are frozen (it is used as a feature extractor)
     siamese_model.trainable = False
@@ -168,7 +192,7 @@ def build_model(data):
     model.compile(loss='binary_crossentropy',
                   optimizer=optimizer,
                   metrics=['accuracy'])
-    model.summary()
+    # model.summary()
 
     return model
 
@@ -183,28 +207,46 @@ def train(data, target):
 
     return model
 
-def main(data, target):
+def main(data, anchor, target):
     model = build_model(data)
-
-    anchor, positive, negative = data
 
     prob = model.predict([anchor, target])
     threshold = 0.5
+    greater, equal, less = (prob > threshold).sum(), (prob == threshold).sum(), (prob < threshold).sum()
+
     decision = (prob > threshold).astype(int)
+
+    # make the decision flat
+    decision = decision.flatten()
+
+    ones = np.sum(decision)
+    zeros = len(decision) - ones
 
     print("prob: ", prob)
     print("decision: ", decision)
 
+    print("ones: ", ones, "zeros: ", zeros)
+    print("greater: ", greater, "equal: ", equal, "less: ", less)
+
 if __name__ == "__main__":
-    anchor = np.random.rand(9216, 1)
-    target = np.random.rand(9216, 1)
-    positive = np.random.rand(9216, 1)
-    negative = np.random.rand(9216, 1)
+    # For each window, the values of every axis of each motion sensor are
+    # concatenated to shape a one dimensional array that is later used to 
+    # construct positive and negative examples
+    anchor = compress(anchor)
+    positive = compress(positive)
+    negative = compress(negative)
 
-    anchor = anchor.reshape(1, 9216, 1)
-    target = target.reshape(1, 9216, 1)
-    positive = positive.reshape(1, 9216, 1)
-    negative = negative.reshape(1, 9216, 1)
+    # expand the last dimension
+    anchor = np.expand_dims(anchor, axis=-1)
+    positive = np.expand_dims(positive, axis=-1)
+    negative = np.expand_dims(negative, axis=-1)
 
-    data = (anchor, positive, negative)
-    main(data, target)
+    # train test split
+    anchor_train, anchor_test = train_test_split(anchor, test_size=0.2)
+    positive_train, positive_test = train_test_split(positive, test_size=0.2)
+    negative_train, negative_test = train_test_split(negative, test_size=0.2)
+
+    data = (anchor_train, positive_train, negative_train)
+    main(data=data, anchor=anchor_test, target=positive_test)
+
+    main(data=data, anchor=anchor_test, target=negative_test)
