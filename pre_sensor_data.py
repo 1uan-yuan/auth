@@ -23,6 +23,10 @@ def get(set="dataset0", seconds=3, choosing="nodding", sensor="accel"):
     # trim the result to fit the model
     data = data[:-(len(data) % (seconds * frequency_x))]
 
+    # # normalize the data
+    min_value, max_value = np.min(data), np.max(data)
+    data = (data - min_value) / (max_value - min_value)
+
     # To obtain a pool of samples,
     # we then ran a sliding window of fixed length (1, 3, 5, 10
     # and 15 seconds) with step size equal to 1/10th of its length
@@ -31,10 +35,6 @@ def get(set="dataset0", seconds=3, choosing="nodding", sensor="accel"):
 
     # # reshape the data
     # data = np.array(data).reshape(-1, seconds * frequency_x, 3)
-
-    # # normalize the data
-    # min_value, max_value = np.min(data), np.max(data)
-    # data = (data - min_value) / (max_value - min_value)
 
     return new_data, frequency_x
 

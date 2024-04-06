@@ -15,7 +15,7 @@ import pre_sensor_data as psd
 decision_lr = 1e-4
 siamese_lr = 1e-3
 
-epochs = 15
+epochs = 100
 alpha = 0.03
 
 seconds = 3
@@ -207,11 +207,10 @@ def train(data, target):
 
     return model
 
-def main(data, anchor, target):
-    model = build_model(data)
+def main(model, anchor, target, threshold):
+    # model = build_model(data)
 
     prob = model.predict([anchor, target])
-    threshold = 0.5
     greater, equal, less = (prob > threshold).sum(), (prob == threshold).sum(), (prob < threshold).sum()
 
     decision = (prob > threshold).astype(int)
@@ -222,11 +221,11 @@ def main(data, anchor, target):
     ones = np.sum(decision)
     zeros = len(decision) - ones
 
-    print("prob: ", prob)
-    print("decision: ", decision)
+    # print("prob: ", prob)
+    # print("decision: ", decision)
 
-    print("ones: ", ones, "zeros: ", zeros)
-    print("greater: ", greater, "equal: ", equal, "less: ", less)
+    # print(">> Threshold: ", threshold, "ones: ", ones, "zeros: ", zeros)
+    print(">> Threshold: ", threshold, "greater: ", greater, "equal: ", equal, "less: ", less)
 
 if __name__ == "__main__":
     # For each window, the values of every axis of each motion sensor are
@@ -241,12 +240,23 @@ if __name__ == "__main__":
     positive = np.expand_dims(positive, axis=-1)
     negative = np.expand_dims(negative, axis=-1)
 
+    # shuffle the data
+    indices = np.arange(anchor.shape[0])
+    np.random.shuffle(indices)
+    anchor = anchor[indices]
+    positive = positive[indices]
+    negative = negative[indices]
+
     # train test split
     anchor_train, anchor_test = train_test_split(anchor, test_size=0.2)
     positive_train, positive_test = train_test_split(positive, test_size=0.2)
     negative_train, negative_test = train_test_split(negative, test_size=0.2)
 
     data = (anchor_train, positive_train, negative_train)
-    main(data=data, anchor=anchor_test, target=positive_test)
 
-    main(data=data, anchor=anchor_test, target=negative_test)
+    model = build_model(data)
+
+    thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    for threshold in thresholds:
+        main(model=model, anchor=anchor_test, target=positive_test, threshold=threshold)
+        main(model=model, anchor=anchor_test, target=negative_test, threshold=threshold)
